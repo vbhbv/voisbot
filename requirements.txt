@@ -2,3 +2,4 @@ python-telegram-bot==22.5
 transformers==4.30.2
 torch==2.9.0
 soundfile
+scipy
