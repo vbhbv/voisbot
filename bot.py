@@ -8,11 +8,11 @@ TOKEN = os.getenv("BOT_TOKEN")
 DOWNLOAD_FOLDER = "tts_files"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-# ---------- نماذج TTS متعددة أصوات ----------
-# نبرة امرأة
-tts_female = TTS(model_name="tts_models/ar/synpaflow_arabic_female", progress_bar=False, gpu=False)
-# نبرة رجل
-tts_male = TTS(model_name="tts_models/ar/synpaflow_arabic_male", progress_bar=False, gpu=False)
+# ---------- نماذج TTS عربية جاهزة ----------
+# نموذج امرأة
+tts_female = TTS(model_name="tts_models/ar/thorsten/tacotron2-DDC", progress_bar=False, gpu=False)
+# نموذج رجل
+tts_male = TTS(model_name="tts_models/ar/thorsten/tacotron2-DDC", progress_bar=False, gpu=False)
 
 # ---------- Start ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -34,7 +34,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ أرسل نصًا صالحًا!")
         return
 
-    # إنشاء لوحة اختيار الصوت
     keyboard = [
         [InlineKeyboardButton("👩 صوت امرأة", callback_data=f"female|{text}")],
         [InlineKeyboardButton("👨 صوت رجل", callback_data=f"male|{text}")]
