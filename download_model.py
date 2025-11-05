@@ -1,15 +1,14 @@
 import os
-from transformers import cached_download
+from TTS.api import TTS
 
-# ===== إعدادات التحميل =====
-MODEL_ID = "MBZUAI/speecht5_tts_clartts_ar"
-MODEL_DIR = "models/speecht5_tts_clartts_ar"
+# المسار المحلي للنموذج
+MODEL_PATH = "tts_model/"
 
-os.makedirs(MODEL_DIR, exist_ok=True)
+# تحميل النموذج محلياً فقط
+def load_local_tts():
+    if not os.path.exists(MODEL_PATH):
+        raise FileNotFoundError(f"❌ نموذج TTS غير موجود في {MODEL_PATH}")
 
-print(f"⏳ جاري تحميل النموذج {MODEL_ID} ...")
-
-# تحميل النموذج إلى المجلد المحلي
-cached_download(MODEL_ID, cache_dir=MODEL_DIR)
-
-print(f"✅ تم تحميل النموذج وحفظه في: {MODEL_DIR}")
+    tts_female = TTS(model_path=MODEL_PATH, gpu=False)
+    tts_male = TTS(model_path=MODEL_PATH, gpu=False)  # يمكن تعديل لاختيار نموذج رجالي مختلف إذا موجود
+    return tts_female, tts_male
