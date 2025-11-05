@@ -1,0 +1,4 @@
+python-telegram-bot==22.5
+TTS==0.12.0
+torch==2.9.0
+numpy
