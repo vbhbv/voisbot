@@ -1,58 +1,78 @@
 import os
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+
+# ===== مكتبات TTS =====
 from transformers import AutoProcessor, SpeechT5ForTextToSpeech
 import torch
+from scipy.io.wavfile import write
 import soundfile as sf
 
-# ===== متغير البيئة =====
-TOKEN = os.getenv("BOT_TOKEN")
+# ===== إعداد النموذج =====
+MODEL_PATH = "models/speecht5_tts_clartts_ar"
 
-# ===== تحميل نموذج MBZUAI/SpeechT5 عربي =====
-processor = AutoProcessor.from_pretrained("MBZUAI/speecht5_tts_clartts_ar")
-model = SpeechT5ForTextToSpeech.from_pretrained("MBZUAI/speecht5_tts_clartts_ar")
-
+processor = AutoProcessor.from_pretrained(MODEL_PATH)
+model = SpeechT5ForTextToSpeech.from_pretrained(MODEL_PATH)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
 
 # ===== رسالة البداية =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 مرحبًا! أنا بوت نطق النصوص بالعربية 🔊\n"
-        "أرسل لي أي نص وسأحوّله إلى صوت.\n"
-        "يمكنك اختيار الصوت بين رجل وامرأة لاحقًا."
+        "👋 أهلاً بك في بوت نطق النصوص بالعربية 🔊\n"
+        "أرسل أي نص بالعربية وسأحوله لك إلى صوت بجودة عالية.\n"
+        "يمكنك اختيار الصوت: رجل أو امرأة باستخدام كلمات: 'صوت رجل' أو 'صوت امرأة' في بداية النص."
     )
 
-# ===== تحويل النص إلى صوت =====
-async def text_to_speech(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== دالة التحويل إلى صوت =====
+def text_to_speech(text, voice="female", file_path="output.wav"):
+    # إعداد نبرة الصوت
+    speaker = "alloy" if voice=="male" else "aria"
+
+    # توليد الموجة الصوتية
+    inputs = processor(text=text, return_tensors="pt")
+    speech = model.generate_speech(**inputs, speaker=speaker, sample_rate=24000)
+
+    # حفظ الصوت
+    sf.write(file_path, speech.cpu().numpy(), 24000)
+    return file_path
+
+# ===== التعامل مع الرسائل =====
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
+
+    # تحديد الصوت
+    voice = "female"
+    if text.lower().startswith("صوت رجل"):
+        voice = "male"
+        text = text[8:].strip()
+    elif text.lower().startswith("صوت امرأة"):
+        voice = "female"
+        text = text[10:].strip()
+
     if not text:
         await update.message.reply_text("⚠️ أرسل نصًا لتحويله إلى صوت.")
         return
 
-    await update.message.reply_text("⏳ جاري توليد الصوت...")
+    await update.message.reply_text("⏳ جاري تحويل النص إلى صوت...")
 
-    # تجهيز الإدخال
-    inputs = processor(text=text, return_tensors="pt").to(device)
-    
-    # توليد الصوت
-    with torch.no_grad():
-        speech = model.generate_speech(inputs["input_ids"], speaker=0)  # speaker=0 للذكر، 1 للأنثى
+    file_path = f"tts_output_{update.message.message_id}.wav"
+    await asyncio.to_thread(text_to_speech, text, voice, file_path)
 
-    # حفظ الملف
-    out_file = "output.wav"
-    sf.write(out_file, speech.cpu().numpy(), samplerate=16000)
-
-    # إرسال الملف
-    await update.message.reply_audio(audio=open(out_file, "rb"), filename="speech.wav")
-    os.remove(out_file)
+    # إرسال الصوت
+    await update.message.reply_audio(audio=open(file_path, "rb"), caption="✅ تم تحويل النص إلى صوت!")
+    os.remove(file_path)
 
 # ===== التشغيل =====
 def main():
+    TOKEN = os.getenv("BOT_TOKEN")
     app = Application.builder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_speech))
-    print("🚀 بوت نطق النصوص جاهز للعمل")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🚀 بوت نطق النصوص يعمل الآن!")
     app.run_polling()
 
 if __name__ == "__main__":
