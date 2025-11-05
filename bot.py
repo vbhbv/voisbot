@@ -1,68 +1,58 @@
 import os
-import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
-from TTS.api import TTS
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from transformers import AutoProcessor, SpeechT5ForTextToSpeech
+import torch
+import soundfile as sf
 
+# ===== متغير البيئة =====
 TOKEN = os.getenv("BOT_TOKEN")
-DOWNLOAD_FOLDER = "tts_files"
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-# ---------- نماذج TTS عربية خفيفة ----------
-# صوت امرأة عربي واضح وحديث
-tts_female = TTS(model_name="tts_models/ar/sammy/tacotron2-small", progress_bar=False, gpu=False)
-# صوت رجل عربي واضح وحديث
-tts_male   = TTS(model_name="tts_models/ar/sammy/tacotron2-small", progress_bar=False, gpu=False)
+# ===== تحميل نموذج MBZUAI/SpeechT5 عربي =====
+processor = AutoProcessor.from_pretrained("MBZUAI/speecht5_tts_clartts_ar")
+model = SpeechT5ForTextToSpeech.from_pretrained("MBZUAI/speecht5_tts_clartts_ar")
 
-# ---------- رسالة البداية ----------
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model.to(device)
+
+# ===== رسالة البداية =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 أهلاً بك في بوت نطق النصوص بالعربية 🔊\n"
-        "أرسل أي نص لأحوله إلى صوت طبيعي، ثم اختر نوع الصوت:"
+        "👋 مرحبًا! أنا بوت نطق النصوص بالعربية 🔊\n"
+        "أرسل لي أي نص وسأحوّله إلى صوت.\n"
+        "يمكنك اختيار الصوت بين رجل وامرأة لاحقًا."
     )
 
-# ---------- تحويل النص إلى صوت ----------
-def text_to_speech(text: str, voice: str, filename: str):
-    tts = tts_female if voice == "female" else tts_male
-    tts.tts_to_file(text=text, file_path=filename)
-    return filename
-
-# ---------- استقبال الرسائل ----------
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== تحويل النص إلى صوت =====
+async def text_to_speech(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if not text:
-        await update.message.reply_text("⚠️ أرسل نصًا صالحًا!")
+        await update.message.reply_text("⚠️ أرسل نصًا لتحويله إلى صوت.")
         return
 
-    keyboard = [
-        [InlineKeyboardButton("👩 صوت امرأة", callback_data=f"female|{text}")],
-        [InlineKeyboardButton("👨 صوت رجل", callback_data=f"male|{text}")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("اختر نوع الصوت:", reply_markup=reply_markup)
+    await update.message.reply_text("⏳ جاري توليد الصوت...")
 
-# ---------- التعامل مع اختيار الصوت ----------
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    voice, text = query.data.split("|")
+    # تجهيز الإدخال
+    inputs = processor(text=text, return_tensors="pt").to(device)
     
-    filename = os.path.join(DOWNLOAD_FOLDER, f"tts_{query.from_user.id}.wav")
-    await asyncio.to_thread(text_to_speech, text, voice, filename)
+    # توليد الصوت
+    with torch.no_grad():
+        speech = model.generate_speech(inputs["input_ids"], speaker=0)  # speaker=0 للذكر، 1 للأنثى
 
-    if os.path.exists(filename):
-        await query.message.reply_audio(audio=open(filename, "rb"), caption=f"✅ تم تحويل النص إلى صوت ({voice})!")
-        os.remove(filename)
-    else:
-        await query.message.reply_text("❌ حدث خطأ أثناء تحويل النص!")
+    # حفظ الملف
+    out_file = "output.wav"
+    sf.write(out_file, speech.cpu().numpy(), samplerate=16000)
 
-# ---------- تشغيل البوت ----------
+    # إرسال الملف
+    await update.message.reply_audio(audio=open(out_file, "rb"), filename="speech.wav")
+    os.remove(out_file)
+
+# ===== التشغيل =====
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    print("🚀 بوت نطق النصوص بالعربية جاهز للعمل!")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_speech))
+    print("🚀 بوت نطق النصوص جاهز للعمل")
     app.run_polling()
 
 if __name__ == "__main__":
